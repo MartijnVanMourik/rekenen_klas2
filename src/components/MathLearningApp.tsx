@@ -88,6 +88,240 @@ const BLOCKS: Block[] = [
   }
 ]
 
+// Context-sjablonen voor unieke contextopgaven (hoofdstuk 1)
+const CONTEXT_TEMPLATES = [
+  {
+    theme: 'geld',
+    template: (numbers: number[]) => `Lisa koopt een boek voor €${numbers[0]}. Ze koopt ook een pen voor €${numbers[1]}. Hoeveel betaalt ze in totaal?`,
+    operation: 'addition',
+    minNumbers: 2,
+    maxNumbers: 2
+  },
+  {
+    theme: 'reizen',
+    template: (numbers: number[]) => `De bus rijdt ${numbers[0]} km op maandag, ${numbers[1]} km op dinsdag en ${numbers[2]} km op woensdag. Hoeveel km rijdt de bus in totaal?`,
+    operation: 'addition',
+    minNumbers: 3,
+    maxNumbers: 3
+  },
+  {
+    theme: 'bezoekers',
+    template: (numbers: number[]) => `In week 12 kwamen er ${numbers[0]} bezoekers, in week 13 ${numbers[1]}. Hoeveel meer bezoekers waren er in week 13?`,
+    operation: 'subtraction',
+    minNumbers: 2,
+    maxNumbers: 2
+  },
+  {
+    theme: 'korting',
+    template: (numbers: number[]) => `Een fiets kost €${numbers[0]}. In de uitverkoop krijg je €${numbers[1]} korting. Wat betaal je nu?`,
+    operation: 'subtraction',
+    minNumbers: 2,
+    maxNumbers: 2
+  },
+  {
+    theme: 'school',
+    template: (numbers: number[]) => `Er zijn ${numbers[0]} leerlingen op school. ${numbers[1]} gaan naar huis. Hoeveel blijven er over?`,
+    operation: 'subtraction',
+    minNumbers: 2,
+    maxNumbers: 2
+  },
+  {
+    theme: 'familie',
+    template: (numbers: number[]) => `Op een feestje zijn ${numbers[0]} volwassenen, ${numbers[1]} kinderen en ${numbers[2]} baby's. Hoeveel mensen zijn er in totaal?`,
+    operation: 'addition',
+    minNumbers: 3,
+    maxNumbers: 3
+  },
+  {
+    theme: 'winkelen',
+    template: (numbers: number[]) => `Je koopt drie producten voor €${numbers[0]}, €${numbers[1]} en €${numbers[2]}. Hoeveel betaal je samen?`,
+    operation: 'addition',
+    minNumbers: 3,
+    maxNumbers: 3
+  },
+  {
+    theme: 'sport',
+    template: (numbers: number[]) => `Je team scoort ${numbers[0]}, ${numbers[1]} en ${numbers[2]} punten in drie wedstrijden. Hoeveel punten in totaal?`,
+    operation: 'addition',
+    minNumbers: 3,
+    maxNumbers: 3
+  }
+]
+
+// Helper om random getallen te genereren met x cijfers
+function randomIntWithDigits(digits: number) {
+  const min = Math.pow(10, digits - 1)
+  const max = Math.pow(10, digits) - 1
+  return Math.floor(Math.random() * (max - min + 1)) + min
+}
+
+// Helper om een array van random getallen te maken
+function generateRandomNumbers(count: number, digits: number) {
+  return Array.from({ length: count }, () => randomIntWithDigits(digits))
+}
+
+// Gemini API helper
+async function generateGeminiContext({ numbers, operation, difficulty }: { numbers: number[], operation: string, difficulty: string }) {
+  const apiKey = process.env.NEXT_PUBLIC_GOOGLE_API_KEY
+  if (!apiKey) {
+    console.warn('Geen Gemini API key gevonden (NEXT_PUBLIC_GOOGLE_API_KEY)')
+    return null
+  }
+  console.log('Gemini API wordt aangeroepen met key:', apiKey.slice(0, 5) + '...')
+  const prompt = `Genereer een korte, realistische contextvraag voor een rekenopgave voor een leerling uit de onderbouw van het voortgezet onderwijs. Gebruik de volgende getallen: ${numbers.join(', ')} en de bewerking: ${operation === 'addition' ? 'optellen' : 'aftrekken'}. De vraag moet lijken op de voorbeeldsommen uit een Nederlands rekenboek, zoals: "Lisa koopt een boek voor €12,95 en een pen voor €2,50. Hoeveel betaalt ze in totaal?". Gebruik geen namen uit het voorbeeld, maar verzin zelf een korte, unieke context. Stel de vraag in het Nederlands.`
+  const body = {
+    contents: [{ role: 'user', parts: [{ text: prompt }] }]
+  }
+  try {
+    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    })
+    const data = await res.json()
+    console.log('Gemini API response:', data)
+    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text
+    if (!text) {
+      console.warn('Geen geldig antwoord van Gemini API')
+    }
+    return text || null
+  } catch (e) {
+    console.warn('Fout bij Gemini API:', e)
+    return null
+  }
+}
+
+// Maak generateAdvancedMathProblem asynchroon
+async function generateAdvancedMathProblemAsync({
+  id,
+  operation,
+  difficulty,
+  isWordProblem = false,
+  useGeminiContext = false
+}: {
+  id: string,
+  operation: 'addition' | 'subtraction',
+  difficulty: 'easy' | 'medium' | 'hard',
+  isWordProblem?: boolean,
+  useGeminiContext?: boolean
+}): Promise<MathProblem> {
+  // Moeilijkheid bepaalt aantal cijfers en getallen
+  let numCount: number, digits: number
+  switch (difficulty) {
+    case 'easy':
+      numCount = 2
+      digits = 3
+      break
+    case 'medium':
+      numCount = Math.random() < 0.5 ? 2 : 3
+      digits = 4
+      break
+    case 'hard':
+      numCount = Math.random() < 0.5 ? 3 : 4
+      digits = 4 + Math.floor(Math.random() * 2) // 4 of 5 cijfers
+      break
+    default:
+      numCount = 2
+      digits = 3
+  }
+
+  let numbers: number[]
+  let question: string
+  if (isWordProblem) {
+    numbers = generateRandomNumbers(numCount, digits)
+    if (useGeminiContext) {
+      // Probeer Gemini context te genereren
+      const geminiQ = await generateGeminiContext({ numbers, operation, difficulty })
+      if (geminiQ) {
+        question = geminiQ
+      } else {
+        // Fallback naar bestaande contextgenerator
+        const candidates = CONTEXT_TEMPLATES.filter(t => t.operation === operation && t.minNumbers <= numCount && t.maxNumbers >= numCount)
+        if (candidates.length > 0) {
+          const template = candidates[Math.floor(Math.random() * candidates.length)]
+          numCount = Math.floor(Math.random() * (template.maxNumbers - template.minNumbers + 1)) + template.minNumbers
+          numbers = generateRandomNumbers(numCount, digits)
+          question = template.template(numbers)
+        } else {
+          question = numbers.join(operation === 'addition' ? ' + ' : ' - ') + ' = ?'
+        }
+      }
+    } else {
+      // Bestaande contextgenerator
+      const candidates = CONTEXT_TEMPLATES.filter(t => t.operation === operation && t.minNumbers <= numCount && t.maxNumbers >= numCount)
+      if (candidates.length > 0) {
+        const template = candidates[Math.floor(Math.random() * candidates.length)]
+        numCount = Math.floor(Math.random() * (template.maxNumbers - template.minNumbers + 1)) + template.minNumbers
+        numbers = generateRandomNumbers(numCount, digits)
+        question = template.template(numbers)
+      } else {
+        question = numbers.join(operation === 'addition' ? ' + ' : ' - ') + ' = ?'
+      }
+    }
+  } else {
+    numbers = generateRandomNumbers(numCount, digits)
+    if (operation === 'addition') {
+      question = numbers.join(' + ') + ' = ?'
+    } else {
+      numbers = [Math.max(...numbers), ...numbers.slice(1)]
+      question = numbers.join(' - ') + ' = ?'
+    }
+  }
+
+  let answer: number
+  if (operation === 'addition') {
+    answer = numbers.reduce((a, b) => a + b, 0)
+  } else {
+    answer = numbers.reduce((a, b) => a - b)
+  }
+
+  return {
+    id,
+    question,
+    answer,
+    type: operation,
+    difficulty,
+    explanation: `${question.replace('= ?', '= ' + answer)}`
+  }
+}
+
+// Pas generateAddition en generateSubtraction aan om generateAdvancedMathProblemAsync te gebruiken
+const generateAddition = async (id: string, difficulty: 'easy' | 'medium' | 'hard', isWordProblem: boolean = false, useGeminiContext: boolean = false): Promise<MathProblem> => {
+  return generateAdvancedMathProblemAsync({ id, operation: 'addition', difficulty, isWordProblem, useGeminiContext })
+}
+const generateSubtraction = async (id: string, difficulty: 'easy' | 'medium' | 'hard', isWordProblem: boolean = false, useGeminiContext: boolean = false): Promise<MathProblem> => {
+  return generateAdvancedMathProblemAsync({ id, operation: 'subtraction', difficulty, isWordProblem, useGeminiContext })
+}
+
+// 1. Voeg Socratische uitleg via Gemini toe
+async function generateSocraticHint({ question, answer }: { question: string, answer: number }) {
+  const apiKey = process.env.NEXT_PUBLIC_GOOGLE_API_KEY
+  if (!apiKey) {
+    console.warn('Geen Gemini API key gevonden (NEXT_PUBLIC_GOOGLE_API_KEY)')
+    return null
+  }
+  const prompt = `Je bent een vriendelijke, Socratische rekenleraar. De leerling heeft deze opgave fout gemaakt:\n${question}\nHet juiste antwoord is: ${answer}\nGeef een korte, sturende tip (max 5 zinnen) met hints en vragen, zodat de leerling zelf tot het antwoord kan komen. Geef niet direct het antwoord.`
+  const body = {
+    contents: [{ role: 'user', parts: [{ text: prompt }] }]
+  }
+  try {
+    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    })
+    const data = await res.json()
+    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text
+    if (!text) {
+      console.warn('Geen geldig antwoord van Gemini API voor Socratische uitleg')
+    }
+    return text || null
+  } catch (e) {
+    console.warn('Fout bij Gemini API (Socratische uitleg):', e)
+    return null
+  }
+}
+
 export default function MathLearningApp() {
   // Existing state
   const [currentProblem, setCurrentProblem] = useState<MathProblem | null>(null)
@@ -111,6 +345,13 @@ export default function MathLearningApp() {
   const [diagnosticTestScores, setDiagnosticTestScores] = useState<Record<string, { correct: number, total: number }>>({})
   const [diagnosticTestAttempts, setDiagnosticTestAttempts] = useState(0)
   const [showDiagnosticResults, setShowDiagnosticResults] = useState(false)
+
+  // Voeg Gemini setting toe aan de state
+  const [useGeminiContext, setUseGeminiContext] = useState(false)
+
+  // 2. Voeg state toe voor Socratische uitleg
+  const [socraticHint, setSocraticHint] = useState<string | null>(null)
+  const [isLoadingHint, setIsLoadingHint] = useState(false)
 
   // Timer effect
   useEffect(() => {
@@ -149,23 +390,31 @@ export default function MathLearningApp() {
     }
   }
 
-  const generateProblem = (
-    problemTypes: MathProblem['type'][], 
+  // Maak generateProblem asynchroon
+  const generateProblem = async (
+    problemTypes: MathProblem['type'][],
     difficulty: 'easy' | 'medium' | 'hard',
     isWordProblem: boolean = false,
-    sourceChapterId?: string
-  ): MathProblem => {
-    const type = problemTypes[Math.floor(Math.random() * problemTypes.length)]
+    sourceChapterId?: string,
+    currentChapterId?: string,
+    useGeminiContext?: boolean
+  ): Promise<MathProblem> => {
+    // Forceer in hoofdstuk 1 altijd alleen optellen/aftrekken
+    let allowedTypes = problemTypes
+    if (sourceChapterId === 'chapter1' || currentChapterId === 'chapter1') {
+      allowedTypes = ['addition', 'subtraction'] as MathProblem['type'][]
+    }
+    const type = allowedTypes[Math.floor(Math.random() * allowedTypes.length)]
     const id = `${type}_${Date.now()}_${Math.random()}`
-    
+
     let problem: MathProblem
 
     switch (type) {
       case 'addition':
-        problem = generateAddition(id, difficulty, isWordProblem)
+        problem = await generateAddition(id, difficulty, isWordProblem, useGeminiContext)
         break
       case 'subtraction':
-        problem = generateSubtraction(id, difficulty, isWordProblem)
+        problem = await generateSubtraction(id, difficulty, isWordProblem, useGeminiContext)
         break
       case 'multiplication':
         problem = generateMultiplication(id, difficulty, isWordProblem)
@@ -180,7 +429,7 @@ export default function MathLearningApp() {
         problem = generateDecimals(id, difficulty, isWordProblem)
         break
       default:
-        problem = generateAddition(id, difficulty, isWordProblem)
+        problem = await generateAddition(id, difficulty, isWordProblem, useGeminiContext)
     }
 
     if (sourceChapterId) {
@@ -188,72 +437,6 @@ export default function MathLearningApp() {
     }
 
     return problem
-  }
-
-  const generateAddition = (id: string, difficulty: 'easy' | 'medium' | 'hard', isWordProblem: boolean = false): MathProblem => {
-    let a: number, b: number
-    
-    switch (difficulty) {
-      case 'easy':
-        a = Math.floor(Math.random() * 20) + 1
-        b = Math.floor(Math.random() * 20) + 1
-        break
-      case 'medium':
-        a = Math.floor(Math.random() * 100) + 10
-        b = Math.floor(Math.random() * 100) + 10
-        break
-      case 'hard':
-        a = Math.floor(Math.random() * 500) + 50
-        b = Math.floor(Math.random() * 500) + 50
-        break
-    }
-    
-    const answer = a + b
-    const question = isWordProblem 
-      ? `Lisa heeft ${a} stickers. Ze krijgt er nog ${b} bij. Hoeveel stickers heeft ze nu in totaal?`
-      : `${a} + ${b} = ?`
-    
-    return {
-      id,
-      question,
-      answer,
-      type: 'addition',
-      difficulty,
-      explanation: `${a} + ${b} = ${answer}`
-    }
-  }
-
-  const generateSubtraction = (id: string, difficulty: 'easy' | 'medium' | 'hard', isWordProblem: boolean = false): MathProblem => {
-    let a: number, b: number
-    
-    switch (difficulty) {
-      case 'easy':
-        a = Math.floor(Math.random() * 20) + 10
-        b = Math.floor(Math.random() * a) + 1
-        break
-      case 'medium':
-        a = Math.floor(Math.random() * 100) + 50
-        b = Math.floor(Math.random() * a) + 1
-        break
-      case 'hard':
-        a = Math.floor(Math.random() * 500) + 100
-        b = Math.floor(Math.random() * a) + 1
-        break
-    }
-    
-    const answer = a - b
-    const question = isWordProblem 
-      ? `Er zijn ${a} kinderen op het schoolplein. ${b} kinderen gaan naar binnen. Hoeveel kinderen blijven er over?`
-      : `${a} - ${b} = ?`
-    
-    return {
-      id,
-      question,
-      answer,
-      type: 'subtraction',
-      difficulty,
-      explanation: `${a} - ${b} = ${answer}`
-    }
   }
 
   const generateMultiplication = (id: string, difficulty: 'easy' | 'medium' | 'hard', isWordProblem: boolean = false): MathProblem => {
@@ -384,23 +567,17 @@ export default function MathLearningApp() {
     setDiagnosticTestScores({})
   }
 
-  const startDiagnosticTest = (block: Block) => {
+  // Pas startDiagnosticTest aan om te awaiten op generateProblem
+  const startDiagnosticTest = async (block: Block) => {
+    setIsLoadingProblem(true)
     const problems: MathProblem[] = []
-    
-    // Generate 2 problems per chapter (1 calculation + 1 word problem)
-    block.chapters.forEach(chapter => {
-      // Regular calculation
-      const calcProblem = generateProblem(chapter.problemTypes, chapter.difficulty, false, chapter.id)
+    for (const chapter of block.chapters) {
+      const calcProblem = await generateProblem(chapter.problemTypes, chapter.difficulty, false, chapter.id, chapter.id, useGeminiContext)
       problems.push(calcProblem)
-      
-      // Word problem
-      const wordProblem = generateProblem(chapter.problemTypes, chapter.difficulty, true, chapter.id)
+      const wordProblem = await generateProblem(chapter.problemTypes, chapter.difficulty, true, chapter.id, chapter.id, useGeminiContext)
       problems.push(wordProblem)
-    })
-    
-    // Shuffle problems
+    }
     const shuffledProblems = problems.sort(() => Math.random() - 0.5)
-    
     setDiagnosticTestProblems(shuffledProblems)
     setDiagnosticTestCurrentProblemIndex(0)
     setCurrentProblem(shuffledProblems[0])
@@ -409,15 +586,13 @@ export default function MathLearningApp() {
     setUserAnswer('')
     setShowResult(false)
     setShowExplanation(false)
-    
-    // Initialize scores
     const initialScores: Record<string, { correct: number, total: number }> = {}
     block.chapters.forEach(chapter => {
       initialScores[chapter.id] = { correct: 0, total: 0 }
     })
     setDiagnosticTestScores(initialScores)
-    
     setDiagnosticTestAttempts(prev => prev + 1)
+    setIsLoadingProblem(false)
   }
 
   const submitDiagnosticAnswer = () => {
@@ -481,30 +656,53 @@ export default function MathLearningApp() {
     setSelectedDifficulty(chapter.difficulty)
     setIsDiagnosticTestActive(false)
     setShowDiagnosticResults(false)
-    startNewProblem()
+    setCurrentProblem(null)
+    setUserAnswer('')
+    setShowResult(false)
+    setShowExplanation(false)
+    setIsCorrect(false)
+    setSocraticHint(null)
+    setIsLoadingHint(false)
+    setTimeout(() => { startNewProblem() }, 0)
   }
 
-  const startNewProblem = () => {
+  // Pas startNewProblem aan om te awaiten op generateProblem en een loading state te tonen
+  const [isLoadingProblem, setIsLoadingProblem] = useState(false)
+
+  const startNewProblem = async () => {
+    setIsLoadingProblem(true)
     let problem: MathProblem
-    
-    if (currentChapter) {
-      // Generate problem for specific chapter
-      problem = generateProblem(currentChapter.problemTypes, currentChapter.difficulty)
+    let isWordProblem = false
+    let types: MathProblem['type'][]
+
+    if (currentChapter && currentChapter.id === 'chapter1') {
+      types = ['addition', 'subtraction'] as MathProblem['type'][]
+      if (selectedDifficulty === 'medium' && Math.random() < 0.4) {
+        isWordProblem = true
+      }
+      if (selectedDifficulty === 'hard' && Math.random() < 0.6) {
+        isWordProblem = true
+      }
+      problem = await generateProblem(types, selectedDifficulty, isWordProblem, 'chapter1', 'chapter1', useGeminiContext)
+    } else if (currentChapter) {
+      types = currentChapter.problemTypes as MathProblem['type'][]
+      problem = await generateProblem(types, selectedDifficulty, false, currentChapter.id, currentChapter.id, useGeminiContext)
     } else {
-      // Generate problem based on selected settings
-      const types = selectedType === 'mixed' 
-        ? ['addition', 'subtraction', 'multiplication', 'division'] 
-        : [selectedType]
-      problem = generateProblem(types as MathProblem['type'][], selectedDifficulty)
+      types = selectedType === 'mixed' 
+        ? (['addition', 'subtraction', 'multiplication', 'division'] as MathProblem['type'][])
+        : ([selectedType] as MathProblem['type'][])
+      problem = await generateProblem(types, selectedDifficulty, false, undefined, undefined, useGeminiContext)
     }
-    
+
     setCurrentProblem(problem)
     setUserAnswer('')
     setShowResult(false)
     setShowExplanation(false)
     setIsCorrect(false)
-    
-    // Set timer for challenge mode
+    setIsLoadingProblem(false)
+    setSocraticHint(null)
+    setIsLoadingHint(false)
+
     if (gameMode === 'challenge') {
       setTimeLeft(30)
       setIsTimerActive(true)
@@ -589,17 +787,37 @@ export default function MathLearningApp() {
     }
   }
 
-  // Initialize with first problem when not in block mode
+  // Haal de tip altijd op bij elke nieuwe foutpoging
   useEffect(() => {
-    if (!currentBlock && !currentChapter && !isDiagnosticTestActive) {
-      startNewProblem()
+    if (showResult && !isCorrect && currentProblem && userAnswer !== '') {
+      setIsLoadingHint(true)
+      setSocraticHint(null)
+      generateSocraticHint({ question: currentProblem.question, answer: currentProblem.answer })
+        .then(hint => setSocraticHint(hint))
+        .finally(() => setIsLoadingHint(false))
+    } else {
+      setSocraticHint(null)
+      setIsLoadingHint(false)
     }
-  }, [selectedType, selectedDifficulty, gameMode])
+  }, [showResult, isCorrect, userAnswer, currentProblem])
 
   // Render block selection screen
   if (!currentBlock) {
     return (
       <div className="max-w-4xl mx-auto">
+        {!currentBlock && !currentChapter && (
+          <div className="flex items-center justify-end mb-4">
+            <label className="flex items-center space-x-2">
+              <input
+                type="checkbox"
+                checked={useGeminiContext}
+                onChange={e => setUseGeminiContext(e.target.checked)}
+                className="form-checkbox h-5 w-5 text-blue-600"
+              />
+              <span className="text-gray-700 text-sm">Gebruik Gemini 2.5 Flash voor contextopgaven</span>
+            </label>
+          </div>
+        )}
         <div className="bg-white rounded-xl shadow-lg p-8 text-center">
           <h2 className="text-3xl font-bold text-gray-800 mb-6">Kies een blok om te starten</h2>
           <p className="text-gray-600 mb-8">Elk blok begint met een diagnostische toets om je niveau te bepalen</p>
@@ -808,10 +1026,14 @@ export default function MathLearningApp() {
         <div className="bg-white rounded-xl shadow-lg p-8">
           <div className="text-center mb-6">
             <div className="text-blue-600 font-semibold mb-2">📋 Diagnostische Toets</div>
-            <div className="text-4xl md:text-6xl font-bold text-gray-800 mb-6">
+            <div className="text-4xl md:text-5xl font-bold text-gray-800 mb-6">
               {currentProblem.question}
             </div>
             
+            {isLoadingProblem && (
+              <div className="text-center text-blue-600 text-lg mb-4 animate-pulse">Nieuwe som wordt geladen...</div>
+            )}
+
             {!showResult && (
               <div className="max-w-md mx-auto">
                 <input
@@ -842,19 +1064,49 @@ export default function MathLearningApp() {
                 <div className={`text-2xl font-bold mb-4 ${isCorrect ? 'text-green-600' : 'text-red-600'}`}>
                   {isCorrect ? 'Goed gedaan!' : `Het juiste antwoord is ${currentProblem.answer}`}
                 </div>
-                {!isCorrect && currentProblem.explanation && (
-                  <div className="bg-blue-50 p-4 rounded-lg mb-4">
-                    <div className="text-blue-800">
-                      <strong>Uitleg:</strong> {currentProblem.explanation}
-                    </div>
+                {!isCorrect && (
+                  <div className="bg-blue-50 p-4 rounded-lg mb-4 mt-2">
+                    {isLoadingHint && <span>Tip wordt opgehaald...</span>}
+                    {!isLoadingHint && socraticHint && <span><strong>Tip:</strong> {socraticHint}</span>}
+                    {!isLoadingHint && !socraticHint && <span><strong>Tip:</strong> Er is geen tip beschikbaar.</span>}
                   </div>
                 )}
-                <div className="text-gray-600">
-                  {diagnosticTestCurrentProblemIndex + 1 < diagnosticTestProblems.length 
-                    ? 'Volgende vraag komt zo...' 
-                    : 'Toets voltooid! Resultaten worden getoond...'
-                  }
-                </div>
+                {isCorrect && (
+                  <div className="bg-green-50 p-4 rounded-lg mb-4 mt-2">
+                    <strong>Het juiste antwoord is:</strong> {currentProblem?.answer}
+                  </div>
+                )}
+                {!isCorrect && (
+                  <div className="flex flex-col sm:flex-row justify-center gap-4 mt-4">
+                    <button
+                      onClick={() => {
+                        setUserAnswer('')
+                        setShowResult(false)
+                        setShowExplanation(false)
+                        setIsCorrect(false)
+                        setSocraticHint(null)
+                        setIsLoadingHint(false)
+                      }}
+                      className="px-6 py-3 bg-yellow-500 text-white text-lg font-semibold rounded-lg hover:bg-yellow-600 focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:ring-offset-2 transition-colors"
+                    >
+                      Probeer het opnieuw
+                    </button>
+                    <button
+                      onClick={startNewProblem}
+                      className="px-6 py-3 bg-green-600 text-white text-lg font-semibold rounded-lg hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 transition-colors"
+                    >
+                      Volgende som
+                    </button>
+                  </div>
+                )}
+                {isCorrect && (
+                  <button
+                    onClick={startNewProblem}
+                    className="px-8 py-3 bg-green-600 text-white text-xl font-semibold rounded-lg hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 transition-colors"
+                  >
+                    Volgende som
+                  </button>
+                )}
               </div>
             )}
           </div>
@@ -934,21 +1186,11 @@ export default function MathLearningApp() {
             <select
               value={selectedDifficulty}
               onChange={(e) => setSelectedDifficulty(e.target.value as 'easy' | 'medium' | 'hard')}
-              disabled={!!currentChapter}
-              className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100"
+              className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
             >
-              {currentChapter ? (
-                <option value={currentChapter.difficulty}>
-                  {currentChapter.difficulty === 'easy' ? '🟢 Makkelijk' : 
-                   currentChapter.difficulty === 'medium' ? '🟡 Gemiddeld' : '🔴 Moeilijk'}
-                </option>
-              ) : (
-                <>
-                  <option value="easy">🟢 Makkelijk</option>
-                  <option value="medium">🟡 Gemiddeld</option>
-                  <option value="hard">🔴 Moeilijk</option>
-                </>
-              )}
+              <option value="easy">🟢 Makkelijk</option>
+              <option value="medium">🟡 Gemiddeld</option>
+              <option value="hard">🔴 Moeilijk</option>
             </select>
           </div>
         </div>
@@ -977,99 +1219,120 @@ export default function MathLearningApp() {
       </div>
 
       {/* Main Problem Area */}
-      <div className="bg-white rounded-xl shadow-lg p-8 mb-6">
-        {currentProblem && (
-          <>
-            {/* Problem Header */}
-            <div className="flex items-center justify-between mb-6">
-              <div className="flex items-center space-x-3">
-                <span className="text-2xl">{getTypeEmoji(currentProblem.type)}</span>
-                <span className={`px-3 py-1 rounded-full text-sm font-medium border ${getDifficultyColor(currentProblem.difficulty)}`}>
-                  {currentProblem.difficulty === 'easy' ? 'Makkelijk' : 
-                   currentProblem.difficulty === 'medium' ? 'Gemiddeld' : 'Moeilijk'}
-                </span>
+      {currentChapter && currentProblem && (
+        <div className="bg-white rounded-xl shadow-lg p-8 mb-6">
+          {/* Problem Header */}
+          <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center space-x-3">
+              <span className="text-2xl">{getTypeEmoji(currentProblem.type)}</span>
+              <span className={`px-3 py-1 rounded-full text-sm font-medium border ${getDifficultyColor(currentProblem.difficulty)}`}>
+                {currentProblem.difficulty === 'easy' ? 'Makkelijk' : 
+                 currentProblem.difficulty === 'medium' ? 'Gemiddeld' : 'Moeilijk'}
+              </span>
+            </div>
+            
+            {timeLeft !== null && (
+              <div className={`text-2xl font-bold ${timeLeft <= 10 ? 'text-red-600 animate-pulse' : 'text-blue-600'}`}>
+                ⏱️ {timeLeft}s
+              </div>
+            )}
+          </div>
+
+          {/* Problem Question */}
+          <div className="text-center mb-8">
+            <div className="text-4xl md:text-6xl font-bold text-gray-800 mb-6">
+              {currentProblem.question}
+            </div>
+            
+            {isLoadingProblem && (
+              <div className="text-center text-blue-600 text-lg mb-4 animate-pulse">Nieuwe som wordt geladen...</div>
+            )}
+
+            {!showResult && (
+              <div className="max-w-md mx-auto">
+                <input
+                  type="number"
+                  step="0.01"
+                  value={userAnswer}
+                  onChange={(e) => setUserAnswer(e.target.value)}
+                  onKeyPress={handleKeyPress}
+                  placeholder="Jouw antwoord..."
+                  className="w-full p-4 text-2xl text-center border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  autoFocus
+                />
+                <button
+                  onClick={checkAnswer}
+                  disabled={!userAnswer.trim()}
+                  className="w-full mt-4 px-6 py-3 bg-blue-600 text-white text-xl font-semibold rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  Controleren
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Result */}
+          {showResult && (
+            <div className="text-center">
+              <div className={`text-6xl mb-4 ${isCorrect ? 'text-green-600' : 'text-red-600'}`}>
+                {isCorrect ? '✅' : '❌'}
               </div>
               
-              {timeLeft !== null && (
-                <div className={`text-2xl font-bold ${timeLeft <= 10 ? 'text-red-600 animate-pulse' : 'text-blue-600'}`}>
-                  ⏱️ {timeLeft}s
+              <div className={`text-2xl font-bold mb-4 ${isCorrect ? 'text-green-600' : 'text-red-600'}`}>
+                {isCorrect ? 'Goed gedaan!' : 'Helaas, probeer het nog eens!'}
+              </div>
+              
+              <div className="text-lg text-gray-600 mb-4">{getEncouragement()}</div>
+
+              {!isCorrect && (
+                <div className="bg-blue-50 p-4 rounded-lg mb-4 mt-2">
+                  {isLoadingHint && <span>Tip wordt opgehaald...</span>}
+                  {!isLoadingHint && socraticHint && <span><strong>Tip:</strong> {socraticHint}</span>}
+                  {!isLoadingHint && !socraticHint && <span><strong>Tip:</strong> Er is geen tip beschikbaar.</span>}
                 </div>
               )}
-            </div>
 
-            {/* Problem Question */}
-            <div className="text-center mb-8">
-              <div className="text-4xl md:text-6xl font-bold text-gray-800 mb-6">
-                {currentProblem.question}
-              </div>
-              
-              {!showResult && (
-                <div className="max-w-md mx-auto">
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={userAnswer}
-                    onChange={(e) => setUserAnswer(e.target.value)}
-                    onKeyPress={handleKeyPress}
-                    placeholder="Jouw antwoord..."
-                    className="w-full p-4 text-2xl text-center border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    autoFocus
-                    disabled={showResult}
-                  />
+              {isCorrect && (
+                <div className="bg-green-50 p-4 rounded-lg mb-4 mt-2">
+                  <strong>Het juiste antwoord is:</strong> {currentProblem?.answer}
+                </div>
+              )}
+
+              {!isCorrect && (
+                <div className="flex flex-col sm:flex-row justify-center gap-4 mt-4">
                   <button
-                    onClick={checkAnswer}
-                    disabled={!userAnswer.trim() || showResult}
-                    className="w-full mt-4 px-6 py-3 bg-blue-600 text-white text-xl font-semibold rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    onClick={() => {
+                      setUserAnswer('')
+                      setShowResult(false)
+                      setShowExplanation(false)
+                      setIsCorrect(false)
+                      setSocraticHint(null)
+                      setIsLoadingHint(false)
+                    }}
+                    className="px-6 py-3 bg-yellow-500 text-white text-lg font-semibold rounded-lg hover:bg-yellow-600 focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:ring-offset-2 transition-colors"
                   >
-                    Controleren
+                    Probeer het opnieuw
+                  </button>
+                  <button
+                    onClick={startNewProblem}
+                    className="px-6 py-3 bg-green-600 text-white text-lg font-semibold rounded-lg hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 transition-colors"
+                  >
+                    Volgende som
                   </button>
                 </div>
               )}
-            </div>
-
-            {/* Result */}
-            {showResult && (
-              <div className="text-center">
-                <div className={`text-6xl mb-4 ${isCorrect ? 'text-green-600' : 'text-red-600'}`}>
-                  {isCorrect ? '✅' : '❌'}
-                </div>
-                
-                <div className={`text-2xl font-bold mb-4 ${isCorrect ? 'text-green-600' : 'text-red-600'}`}>
-                  {isCorrect ? 'Goed gedaan!' : `Helaas, het juiste antwoord is ${currentProblem.answer}`}
-                </div>
-                
-                <div className="text-lg text-gray-600 mb-4">
-                  {getEncouragement()}
-                </div>
-
-                {!isCorrect && (
-                  <div className="bg-blue-50 p-4 rounded-lg mb-4">
-                    <button
-                      onClick={() => setShowExplanation(!showExplanation)}
-                      className="text-blue-600 hover:text-blue-800 font-medium"
-                    >
-                      {showExplanation ? '🔼 Verberg uitleg' : '🔽 Toon uitleg'}
-                    </button>
-                    
-                    {showExplanation && currentProblem.explanation && (
-                      <div className="mt-3 text-blue-800">
-                        <strong>Uitleg:</strong> {currentProblem.explanation}
-                      </div>
-                    )}
-                  </div>
-                )}
-
+              {isCorrect && (
                 <button
                   onClick={startNewProblem}
                   className="px-8 py-3 bg-green-600 text-white text-xl font-semibold rounded-lg hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 transition-colors"
                 >
                   Volgende som
                 </button>
-              </div>
-            )}
-          </>
-        )}
-      </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Additional Controls */}
       <div className="bg-white rounded-xl shadow-lg p-6">
