@@ -15,7 +15,7 @@ export default function Home() {
           </h1>
           
           <p className="text-xl text-blue-700 font-medium mb-6">
-            Leer rekenen op een leuke manier! Voor leerlingen van groep 6, 7 en 8
+            Leer rekenen op een leuke manier! Herhaalcursus rekenen voor leerlingen havo en vwo van klas 2.
           </p>
         </div>
 
